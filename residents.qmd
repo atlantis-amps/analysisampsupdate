@@ -1,0 +1,338 @@
+---
+title: Resident orcas
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+```{r}
+#| message: false
+#| warning: false
+
+library(readr)
+library(ggplot2)
+install.packages("sdmTMB", dependencies = TRUE)
+library(sdmTMB)
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(sf)
+library(rnaturalearthdata)
+```
+Resident orcas simulate the Southern Resident Killer Whale endemic
+population
+
+-   Updated the diet using Ford et al. 1998, Ford & Ellis, 2006, Ford 2009, Hanson et al., 2010 & 2021 and Hermann et al. 2015
+    
+```{r}
+#| echo: false
+#| eval: true 
+source(here::here("libraries.R")) #need to figure out which ones are actually needed
+#External drive (currently G:) /Azure_download/ dietps
+#Original data in Diet_database_V1_no_figures.xlsx
+#Diet data estimated using Dirichelet in Diet_PS_rev2023.R
+#Generated MLE of diet contributions
+#diet matrix sums proportions to 1, created to illustrate diets
+
+func.groups <- readr::read_csv(here::here("inputs","PugetSoundAtlantisFunctionalGroups.csv")) %>% 
+  dplyr::mutate(prey = Code)
+
+diet.matrix <- data.table::fread(here::here("inputs","ps_diet_matrix_Dec_2023.csv"))
+
+prey.order <- c("Pacific Herring Puget Sound","Pacific Herring Cherry Point",
+                "Chinook Hatch Subyearling","Chinook Hatch Yearling",  "Chinook other Subyearling", "Chinook Snohomish Subyearling","Chinook Skagit Subyearling","Chinook Skagit Yearling","Chinook other Yearling",            
+                "Chinook Duwamish Subyearling", "Chinook Hood Canal Subyearling", "Chinook Nisqually Subyearling","Chinook Nisqually Yearling",
+                "Chum Fall Subyearling", "Chum Hood Canal summer run Subyearling","Chum Hatch Subyearling",  
+                "Coho Deep South Yearling", "Coho Hatch Yearling","Coho Skagit Yearling", "Coho other Yearling",    
+                "Pink Salmon Subyearling", "Strait of Georgia salmonids", "Other salmonids",
+                "Large demersal predators", "Small demersal fish",  "Small-mouthed Flatfish", "Piscivorous flatfish",  
+                "Demersal rockfish", "Midwater rockfish",   "Demersal vulnerable rockfish",        
+                "Skates",  
+                "Squid")  
+
+
+
+fill <- c("violet","violetred3",
+          "lightsalmon","lightsalmon1","lightsalmon2","lightsalmon3","lightsalmon4","salmon","salmon1","salmon2","salmon3","salmon4","lightcoral",
+          "rosybrown1","rosybrown2","rosybrown3",
+          "indianred","indianred1","indianred2","indianred3",
+          "sienna1","sienna2","sienna3",
+          "deepskyblue4","dodgerblue4","navyblue","lightsteelblue3",
+          "red1","red2","red4",
+          "turquoise",
+          "turquoise4"
+          
+)
+
+
+diet.matrix.ROR <- diet.matrix %>% 
+  dplyr::filter(predator=="Resident Orca") %>% 
+  tidyr::pivot_longer(cols=(BB:DC_s), names_to="prey") %>% 
+  dplyr::filter(value!=0) %>% 
+  droplevels() %>% 
+  dplyr::left_join(func.groups, by="prey") %>% 
+  dplyr::mutate(prey = as.factor(`Long Name`)) 
+
+diet.matrix.ROR$prey <- factor(diet.matrix.ROR$prey, levels = prey.order)
+
+ror.diet.plot <- diet.matrix.ROR %>%  
+  dplyr::filter(pred_stage=="adult") %>% 
+  ggplot2::ggplot(ggplot2::aes(x=pred_stage, y=value, fill = prey)) + 
+  ggplot2::geom_bar(stat = "identity") +
+  ggplot2::coord_flip() +
+  ggplot2::scale_fill_manual(values=fill)+
+  ggplot2::labs(x = "Resident orcas (adult)",y="Proportion") +
+  #facet_wrap(~prey)+
+  ggplot2::theme_bw()+
+  ggplot2::theme(legend.position="bottom",
+        legend.title = element_blank())
+
+
+
+
+```
+    
+
+-   Updated diet proportions for Chinook populations from Hanson et al.
+    2021
+
+-   Spatial distributions based on SRKW sightings. Estimated based on
+    Thorson et al. 2015
+
+-   Seasonal distribution
+
+We updated spatial distribution based on orca master data of killer whale sightings for the years 2011 - 2020. Laura Kohen (NOAA-Western Regional Center, Protected Species Division) carried out the following analysis: To match sightings of Southern Resident killer whales to Puget Sound Atlantis boxes. First, sightings are filtered to only sightings where there was confidence that the sighting was of Southern Resident killer whales (vs other killer whale populations). Specifically, data is filtered to sightings where the "likely pod" is either SRKW, SRs, J, K, or L; so excludes any sightings where the sighting could only be identified to the "orca" level (not more specific). Also excludes sightings that were specified as transients, Northern residents, "not orcas", or HBs (humpbacks). Data was then filtered to years 2011-2020. From there, we filtered down to unique day-quadrant sightings. Specifically, if there are any 2+ sightings with the same date and Whale Museum specified quadrant number, we only keep 1 sighting with that day-quadrant combo. This is to remove sightings from multiple sources that can inflate occurrence in an area. Note, this then means that there could be multiple sightings on the same day in the same Atlantis box, but they will all be in different Whale Museum quadrants. 
+
+Note also that data was filtered down to only sightings with a whale museum identified quadrant number because these will occur in the Salish sea. Note that Whale Museum quadrant extend passed the Atlantis box domain (we do not have a shapefile of the quadrants but image is included with data). This may miss a few sightings if a quadrant was not specified by the Whale Museum but not a large amount. 
+
+With the sightings data, sightings were converted to an sf object with latitude and longitude. Then, based on the CRS of the Atlantis polygons, the SRKW sightings sf were projected to the same CRS as the Atlantis polygons so that all are in the same sf space/same traget coordinate reference system (function st_transform). Then using st_intersection, this function finds the Atlantis polygons that each sighting falls into. 
+
+The final output file has for all the day-quadrant unique SRKW sightings from 2011-2020, the date (including month, day, year) and the Atlantis polygon where the sighting fell. 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+theme_set(theme_bw())
+
+world <- rnaturalearthdata::ne_countries(scale = "medium", returnclass = "sf")
+class(world)
+usa <- subset(world, admin == "United States of America")
+
+world_points<- sf::st_centroid(world)
+world_points <- cbind(world, sf::st_coordinates(sf::st_centroid(world$geometry)))
+
+
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+
+#quadrant centroid lat/long
+quadloc = read.csv(here::here("inputs","AtlantisBox_occurrence","QuadChart.csv"), header = TRUE)
+
+# label separate months by name -
+monthlabels = c("1" ="Jan","2" = "Feb","3"= "Mar","4" = "Apr","5"= "May","6" ="Jun", "7" = "Jul", "8" = "Aug","9"= "Sep","10" = "Oct","11"= "Nov","12"= "Dec")
+
+```
+
+
+
+```{r import data, include = FALSE}
+
+# Read in data:
+SRKW = read.csv(here::here("inputs","AtlantisBox_occurrence","AppendixII_2020-rawdata.csv"), header = TRUE, na.strings=c("", "NA", " ")) # na.strings call sets blank cells to NA
+SRKWsummer = SRKW[which(SRKW$Month %in% c("7", "8","9")),]
+#Define time range interested in. Here, looking at most recent 15 years. If only want one year, just put one year; for example: year_range = c(2005)
+#2019 not complete - but can use for sightings (not occurrence by month)
+year_range = c(1990:2020)
+
+#subset data to those years: 
+SRKWrecent = SRKW[which(SRKW$Year %in% year_range),]
+# Temporary variable to house data 
+SRKWareas = SRKWrecent
+
+# make "best" pod column - what pod do we most likely think it is?
+SRKWareas$BestPod = rep(NA, length = nrow(SRKWareas))
+
+for(i in 1: nrow(SRKWareas)) {
+  if(!is.na(SRKWareas$LikelyPod[i])) {
+    SRKWareas$BestPod[i] = SRKWareas$LikelyPod[i]
+  } else {
+    SRKWareas$BestPod[i] = SRKWareas$Pod[i]
+  }
+}
+#takes sometime to run, ~1 minute
+
+# trouble shooting - make sure the "bestpod" column has an entry for every row
+
+havelikely = which(!is.na(SRKWareas$LikelyPod))
+onlypod = which(is.na(SRKWareas$LikelyPod))
+identical(SRKWareas$LikelyPod[havelikely], SRKWareas$BestPod[havelikely])
+identical(SRKWareas$Pod[onlypod], SRKWareas$BestPod[onlypod]) #should be true
+
+# one sighting with no pod info at all, throw out - have no idea what whales they are (transient, resident, southern vs. northern etc) so can't use or have other sightings for that day
+nopod = which(is.na(SRKWareas$BestPod))
+SRKWuse = SRKWareas[-nopod,]
+
+#NOW just get SRKW sightings, not transients, NRKW, or non-specified
+# DON'T INCLUDE "orcas" FOR ATLANTIS occurrence - less certainty
+SRKWspecific = SRKWuse[grepl("J|K|L|SR|SRKW|SWKW", SRKWuse$BestPod, ignore.case = TRUE) == TRUE ,] 
+
+# 84264/ 100480 sightings are specified to SRKWs, J, K,L - 84% of the sightings
+
+
+others = SRKWuse[grepl("J|K|L|SR|SRKW|SWKW", SRKWuse$BestPod, ignore.case = TRUE) == FALSE ,] #16216 --> +84264 = 100480
+unique(others$BestPod) # should be all those that wouldn't indicate Southern Residents
+# "Ts"   "Ts?"  "?"    "NRs"  "NRs?" "HB?"
+```
+
+*IMPORTANT 
+Need to run before all analyses - no matter what number of years you will be looking at. Turns all blanks, nulls, or O's in the data into NA
+```{r eval=FALSE, include=FALSE}
+length(which(is.na(SRKWspecific$ActLat) & is.na(SRKWspecific$Lat))) #438/ 84264
+length(which(is.na(SRKWspecific$ActLat) & is.na(SRKWspecific$Lat) & is.na(SRKWspecific$Quadrant)))
+length(which(is.na(SRKWspecific$Quadrant))) #1043
+
+SRKWspecific$Quadrant[which(SRKWspecific$Quadrant == '0')] = NA
+SRKWspecific$Quadrant[which(SRKWspecific$Quadrant == '<Null>')] = NA
+SRKWspecific$ActLat[which(SRKWspecific$ActLat == 0)] = NA
+SRKWspecific$ActLong[which(SRKWspecific$ActLong == 0)] = NA
+SRKWspecific$Lat[which(SRKWspecific$Lat == 0)] = NA
+SRKWspecific$Long[which(SRKWspecific$Long == 0)] = NA
+SRKWspecific$Long[which(SRKWspecific$Long == "<Null>")] = 
+  SRKWspecific$Lat[which(SRKWspecific$Lat == "<Null>")] = NA
+
+```
+
+
+Code to run analysis for most recent 10 years 2011-2020, looking at whole year 
+Recent 10 years
+```{r eval=FALSE, include=TRUE}
+SRKwspecificrecent = SRKWspecific[which(SRKWspecific$Year %in% c(2011:2020)),]
+SRKW_10years = SRKwspecificrecent[which(!is.na(SRKwspecificrecent$Quadrant)),]
+
+### QUADRANTS ####
+# Data with quadrants
+SRKW_10years$NewLat = SRKW_10years$ActLat
+SRKW_10years$NewLong = SRKW_10years$ActLong
+
+SRKW_10years$Lat = as.numeric(SRKW_10years$Lat)
+SRKW_10years$Long = as.numeric(SRKW_10years$Long)
+
+SRKW_10years$Quadrant = as.numeric(SRKW_10years$Quadrant)
+
+SRKW_10years$Long[which(SRKW_10years$Long > 0)] = -SRKW_10years$Long[which(SRKW_10years$Long > 0)]
+
+# Each quadrant was assigned a center lat/long by the whale museum. if a latitude/longitude is missing but there is a quadrant number, pull from data file on quadrant lat/long to get correct lat/long for each quadrant
+
+length(which(!is.na(SRKW_10years$Quadrant) & is.na(SRKW_10years$Lat)))
+
+count = 0
+for(i in 1:nrow(SRKW_10years)) {
+  if(is.na(SRKW_10years$NewLat[i]) & is.na(SRKW_10years$NewLong[i])) {
+    if(!is.na(SRKW_10years$Lat[i]) & !is.na(SRKW_10years$Long[i])) {
+      SRKW_10years$NewLat[i] = SRKW_10years$Lat[i]
+      SRKW_10years$NewLong[i] = SRKW_10years$Long[i]
+    } else if(!is.na(SRKW_10years$Quadrant[i])) {
+      count = count + 1
+      quadmatch = SRKW_10years$Quadrant[i]
+      index = which(quadloc$Quad == quadmatch)
+      SRKW_10years$NewLat[i] = quadloc$Lat[index]
+      SRKW_10years$NewLong[i] = -quadloc$Long[index]
+    }
+  }
+}
+print(count)
+
+
+SRKW_10years[which(SRKW_10years$NewLat < 42),] 
+
+quadloc[which(quadloc$Quad == 163),]
+fix = which(SRKW_10years$NewLat < 42)
+SRKW_10years$NewLat[fix] = SRKW_10years$Lat[fix]
+SRKW_10years$NewLong[fix] = SRKW_10years$Long[fix]
+
+
+## All months not just Summer ############
+
+# remove duplicate day quadrant combos before projecting 
+SRKW_10years_norepeat = SRKW_10years %>% dplyr::distinct(Month, Day, Year, Quadrant, .keep_all= TRUE)
+
+whale_simple10 <- SRKW_10years_norepeat %>% 
+  sf::st_as_sf(coords = c('NewLong', 'NewLat'))
+sf::st_crs(whale_simple10) <- 4326
+
+#whale_simple10new = st_transform(whale_simple10, 32610)
+
+#Atlantis
+atlantis_sf <- sf::st_read(here::here("inputs", "bgm_Puget_Sound_89b_0p0001_NAD83.shp"))
+sf::st_crs(atlantis_sf)
+
+whale_simple10_atlantis = sf::st_transform(whale_simple10, sf::st_crs(atlantis_sf))
+
+Allsightings = ggplot2::ggplot() +
+  ggplot2::geom_sf(data = atlantis_sf) +
+  ggplot2::geom_sf(data = whale_simple10_atlantis) 
+#print(Allsightings)
+
+
+# find which atlantis polygons sightings fall into 
+whalesin10_atlantis = sf::st_intersection(whale_simple10_atlantis, atlantis_sf)
+
+Allmonthssightingsplot = ggplot2::ggplot() +
+  ggplot2::geom_sf(data = whalesin10_atlantis, size = 1) +
+  ggplot2::geom_sf(data = atlantis_sf, colour = "red", fill = NA) +
+  ggplot2::geom_sf_text(data = atlantis_sf, ggplot2::aes(label = BOX_ID), colour = "blue", size = 3) 
+#print(Allmonthssightingsplot)
+
+#just summer
+Summerplot = ggplot2::ggplot() +
+  ggplot2::geom_sf(data = whalesin10_atlantis[which(whalesin10_atlantis$Month %in% c("7","8","9")),], size = 1) +
+  ggplot2::geom_sf(data = atlantis_sf, colour = "red", fill = NA) +
+  ggplot2::geom_sf_text(data = atlantis_sf, ggplot2::aes(label = BOX_ID), colour = "blue", size = 4) + ggtitle("Summer months only")
+#print(Summerplot)
+
+whalecount_bybox = whalesin10_atlantis %>% count(BOX_ID, Month, sort = TRUE)
+ggplot2::ggplot() +
+  ggplot2::geom_sf(data = atlantis_sf) +
+  ggplot2::geom_sf_text(data = atlantis_sf, ggplot2::aes(label = BOX_ID), colour = "blue", size = 3)
+
+ggplot2::ggplot(data=whalecount_bybox, ggplot2::aes(x=BOX_ID, y=n)) +
+  ggplot2::geom_bar(stat="identity") + 
+  ggplot2::facet_wrap(~Month)
+
+colourCount = 12
+getPalette = grDevices::colorRampPalette(RColorBrewer::brewer.pal(9, "Set1"))
+
+ggplot2::ggplot(data=whalecount_bybox, ggplot2::aes(x=BOX_ID, y=n, fill = as.factor(Month))) +
+  ggplot2::geom_bar(stat="identity") +   
+  ggplot2::scale_fill_manual(values = getPalette(colourCount)) + 
+  ggplot2::theme_minimal()
+
+whalecount_sept = whalecount_bybox[which(whalecount_bybox$Month == "9"),]
+whalecount_sept$prop = whalecount_sept$n / sum(whalecount_sept$n)
+
+
+sum(whalecount_bybox$n[which(whalecount_bybox$BOX_ID == 5)]) #2880
+summeronly = whalecount_bybox[which(whalecount_bybox$Month %in% c("7", "8", "9")),]
+sum(summeronly$n) #5002
+sum(summeronly$n[which(summeronly$BOX_ID %in% c(5,16, 18))]) #2812
+2812/5002
+
+
+# export data
+write.csv(whalesin10_atlantis,here::here("inputs","AtlantisBox_occurrence","SRKWsightings_withAtlantisBox.csv"), row.names = FALSE)
+```
+
+
+-   Fecundity. Fishery Management Council Working Group, data from Eric
+    Ward, https://nwfsc-cb.github.io/srkw-status/.
+
+**References**
+
+Ford, J.K.B., G.A. Ellis, L.G. Barrett-Lennard, A.B. Morton, R.S. Palm & K.C. Balcomb. 1998. Dietary specialization in two sympatric populations of killer whales (*Orcinus orca)* in coastal British Columbia and adjacent waters. Canadian Journal of Zoology-Revue Canadienne de Zoologie 76: 1456--1471.
+
+Ford, J.K.B. & G.M. Ellis. 2006. Selective foraging by fish-eating killer whales *Orcinus orca* in British Columbia. Mar. Ecol. Prog. Ser. 316: 185--199.
+
+Ford, J.K.B. 2009. Chinook salmon predation by resident killer whales: Seasonal and regional selectivity, stock identity of prey, and consumption rates. Canadian Science Advisory Secretariat = Secrétariat canadien de consultation scientifique.
+
+Thorson, J.T., Shelton, A.O., Ward, E.J., Skaug, H.J., 2015. Geostatistical delta-generalized linear mixed models improve precision for estimated abundance indices for West Coast groundfishes. ICES J. Mar. Sci. J. Cons. 72(5), 1297--1310. doi:10.1093/icesjms/fsu243. URL: <http://icesjms.oxfordjournals.org/content/72/5/1297>
